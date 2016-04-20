@@ -2,6 +2,7 @@ require 'torch'
 require 'nn'
 require 'optim'
 util = paths.dofile('util.lua')
+w2vutil = require 'w2vutils'
 
 opt = {
    dataset = 'lsun',       -- imagenet / lsun / folder
@@ -9,6 +10,7 @@ opt = {
    loadSize = 96,
    fineSize = 64,
    nz = 100,               -- #  of dim for Z
+   ncond = 300, 	   -- #  of dim for C
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
    nThreads = 4,           -- #  of data loading threads to use
@@ -21,6 +23,7 @@ opt = {
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
    name = 'experiment1',
    noise = 'normal',       -- uniform / normal
+   conditional = false
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -52,56 +55,133 @@ end
 
 local nc = 3
 local nz = opt.nz
+local ncond = opt.ncond
 local ndf = opt.ndf
 local ngf = opt.ngf
 local real_label = 1
 local fake_label = 0
+local conditional = opt.conditional
 
 local SpatialBatchNormalization = nn.SpatialBatchNormalization
 local SpatialConvolution = nn.SpatialConvolution
 local SpatialFullConvolution = nn.SpatialFullConvolution
+local JoinTable = nn.JoinTable
 
-local netG = nn.Sequential()
--- input is Z, going into a convolution
-netG:add(SpatialFullConvolution(nz, ngf * 8, 4, 4))
-netG:add(SpatialBatchNormalization(ngf * 8)):add(nn.ReLU(true))
--- state size: (ngf*8) x 4 x 4
-netG:add(SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))
-netG:add(SpatialBatchNormalization(ngf * 4)):add(nn.ReLU(true))
--- state size: (ngf*4) x 8 x 8
-netG:add(SpatialFullConvolution(ngf * 4, ngf * 2, 4, 4, 2, 2, 1, 1))
-netG:add(SpatialBatchNormalization(ngf * 2)):add(nn.ReLU(true))
--- state size: (ngf*2) x 16 x 16
-netG:add(SpatialFullConvolution(ngf * 2, ngf, 4, 4, 2, 2, 1, 1))
-netG:add(SpatialBatchNormalization(ngf)):add(nn.ReLU(true))
--- state size: (ngf) x 32 x 32
-netG:add(SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1))
-netG:add(nn.Tanh())
--- state size: (nc) x 64 x 64
+--local netG = nn.Sequential()
+--local netD = nn.Sequential()
 
+if conditional then 
+	local noiseInput = nn.Identity()()
+	local condInput = nn.Identity()()
+	-- input is Z + C, going into a convolution
+	-- concatenation table
+	local concat1 = JoinTable(1)({noiseInput,condInput})
+	local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(concat1)
+        local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
+	local relu1 = nn.ReLU(true)(bn1)
+	
+	--concat2 = JoinTable(1)({relu1,condInput})
+	--conv2 = (SpatialFullConvolution(ngf * 8 + ncond, ngf * 4, 4, 4, 2, 2, 1, 1))(concat2)
+        local conv2 = (SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))(relu1)
+	local bn2 = (SpatialBatchNormalization(ngf * 4))(conv2)
+	local relu2 = nn.ReLU(true)(bn2)
+
+	--concat3 = JoinTable(1)({relu2,condInput})
+	--conv3 = SpatialFullConvolution(ngf * 4 + ncond, ngf * 2, 4, 4, 2, 2, 1, 1)(concat3)
+        local conv3 = (SpatialFullConvolution(ngf * 4, ngf * 4, 4, 4, 2, 2, 1, 1))(relu2)
+	local bn3 = SpatialBatchNormalization(ngf * 2)(conv3)
+	local relu3 = nn.ReLU(true)(bn3)
+
+	--concat4 = JoinTable(1)({relu3,condInput})
+	--conv4 = SpatialFullConvolution(ngf * 2 + ncond, ngf, 4, 4, 2, 2, 1, 1)(concat4)
+        local conv4 = SpatialFullConvolution(ngf * 2, ngf, 4, 4, 2, 2, 1, 1)(relu3)
+	local bn4 = SpatialBatchNormalization(ngf)
+	local relu4 = nn.ReLU(true)
+
+	--concat5 = JoinTable(1)({relu4,condInput})
+	--conv5 = SpatialFullConvolution(ngf + ncond, nc, 4, 4, 2, 2, 1, 1)(concat5)
+        local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
+	local tanh1 = nn.Tanh()(conv5)
+	
+	local netG  = nn.gModule({noiseInput, condInput}, {tanh1})
+
+	 -- Discriminative Network
+        -- input is (nc) x 64 x 64
+	local D_input = nn.Identity()()
+	local D_condInput = nn.Identity()()
+       	--D_conv1 = SpatialConvolution(nc + ncond, ndf, 4, 4, 2, 2, 1, 1)(D_input)
+        local D_conv1 = SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1)(D_input)
+	local D_relu1 = nn.LeakyReLU(0.2, true)(D_conv1)
+        -- state size: (ndf) x 32 x 32
+        --D_conv2 = SpatialConvolution(ndf + cond, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
+        local D_conv2 = SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
+	local D_bn2 = SpatialBatchNormalization(ndf * 2)(D_conv2)
+	local D_relu2 = nn.LeakyReLU(0.2, true)(D_bn2)
+        -- state size: (ndf*2) x 16 x 16
+        --D_conv3 = SpatialConvolution(ndf * 2 + ncond, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
+        local D_conv3 = SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
+	local D_bn3 = SpatialBatchNormalization(ndf * 4)(D_conv3)
+	local D_relu3 = nn.LeakyReLU(0.2, true)(D_bn3)
+        -- state size: (ndf*4) x 8 x 8
+        --D_conv4 = SpatialConvolution(ndf * 4 + ncond, ndf * 8, 4, 4, 2, 2, 1, 1)(D_relu3)
+	local D_conv4 = SpatialConvolution(ndf * 4, ndf * 8, 4, 4, 2, 2, 1, 1)(D_relu3)
+	local D_bn4 = SpatialBatchNormalization(ndf * 8)(D_conv4)
+	local D_relu4 = nn.LeakyReLU(0.2, true)(D_bn4)
+        -- state size: (ndf*8) x 4 x 4
+        --D_conv5 = SpatialConvolution(ndf * 8 + ncond, 1, 4, 4)(D_relu4)
+	local D_conv5 = SpatialConvolution(ndf * 8, 1, 4, 4)(D_relu4)
+	local D_reshape5 = nn.Reshape(ndf*8*4*4,1)(D_conv5)
+	local D_concat5 = JoinTable(1)({D_reshape5,D_condInput})
+	local D_sigmoid1 = nn.Sigmoid()(D_concat5)
+        -- state size: 1 x 1 x 1
+        local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
+        -- state size: 1
+	local netD = nn.gModule({D_input,D_condInput},{D_view1})	
+	
+else
+	local netG = nn.Sequential()
+	local netD = nn.Sequential()
+	-- Generative Network
+	-- input is Z, going into a convolution
+	netG:add(SpatialFullConvolution(nz, ngf * 8, 4, 4))
+	netG:add(SpatialBatchNormalization(ngf * 8)):add(nn.ReLU(true))
+	-- state size: (ngf*8) x 4 x 4
+	netG:add(SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))
+	netG:add(SpatialBatchNormalization(ngf * 4)):add(nn.ReLU(true))
+	-- state size: (ngf*4) x 8 x 8
+	netG:add(SpatialFullConvolution(ngf * 4, ngf * 2, 4, 4, 2, 2, 1, 1))
+	netG:add(SpatialBatchNormalization(ngf * 2)):add(nn.ReLU(true))
+	-- state size: (ngf*2) x 16 x 16
+	netG:add(SpatialFullConvolution(ngf * 2, ngf, 4, 4, 2, 2, 1, 1))
+	netG:add(SpatialBatchNormalization(ngf)):add(nn.ReLU(true))
+	-- state size: (ngf) x 32 x 32
+	netG:add(SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1))
+	netG:add(nn.Tanh())
+	-- state size: (nc) x 64 x 64
+		
+	-- Discriminative Network
+	-- input is (nc) x 64 x 64
+	netD:add(SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1))
+	netD:add(nn.LeakyReLU(0.2, true))
+	-- state size: (ndf) x 32 x 32
+	netD:add(SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1))
+	netD:add(SpatialBatchNormalization(ndf * 2)):add(nn.LeakyReLU(0.2, true))
+	-- state size: (ndf*2) x 16 x 16
+	netD:add(SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1))
+	netD:add(SpatialBatchNormalization(ndf * 4)):add(nn.LeakyReLU(0.2, true))
+	-- state size: (ndf*4) x 8 x 8
+	netD:add(SpatialConvolution(ndf * 4, ndf * 8, 4, 4, 2, 2, 1, 1))
+	netD:add(SpatialBatchNormalization(ndf * 8)):add(nn.LeakyReLU(0.2, true))
+	-- state size: (ndf*8) x 4 x 4
+	netD:add(SpatialConvolution(ndf * 8, 1, 4, 4))
+	netD:add(nn.Sigmoid())
+	-- state size: 1 x 1 x 1
+	netD:add(nn.View(1):setNumInputDims(3))
+	-- state size: 1
+	netG:apply(weights_init)
+	netD:apply(weights_init)
+end
 netG:apply(weights_init)
-
-local netD = nn.Sequential()
-
--- input is (nc) x 64 x 64
-netD:add(SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1))
-netD:add(nn.LeakyReLU(0.2, true))
--- state size: (ndf) x 32 x 32
-netD:add(SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1))
-netD:add(SpatialBatchNormalization(ndf * 2)):add(nn.LeakyReLU(0.2, true))
--- state size: (ndf*2) x 16 x 16
-netD:add(SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1))
-netD:add(SpatialBatchNormalization(ndf * 4)):add(nn.LeakyReLU(0.2, true))
--- state size: (ndf*4) x 8 x 8
-netD:add(SpatialConvolution(ndf * 4, ndf * 8, 4, 4, 2, 2, 1, 1))
-netD:add(SpatialBatchNormalization(ndf * 8)):add(nn.LeakyReLU(0.2, true))
--- state size: (ndf*8) x 4 x 4
-netD:add(SpatialConvolution(ndf * 8, 1, 4, 4))
-netD:add(nn.Sigmoid())
--- state size: 1 x 1 x 1
-netD:add(nn.View(1):setNumInputDims(3))
--- state size: 1
-
 netD:apply(weights_init)
 
 local criterion = nn.BCECriterion()
@@ -245,3 +325,4 @@ for epoch = 1, opt.niter do
    print(('End of epoch %d / %d \t Time Taken: %.3f'):format(
             epoch, opt.niter, epoch_tm:time().real))
 end
+
