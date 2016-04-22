@@ -323,14 +323,12 @@ local function tableToOutput(self, dataTable, scalarTable, captionTable)
    assert(dataTable[1]:dim() == 3)
    data = torch.Tensor(quantity,
 		       self.sampleSize[1], self.sampleSize[2], self.sampleSize[3])
-   captions = torch.LongTensor(quantity):fill("hello")
    scalarLabels = torch.LongTensor(quantity):fill(-1111)
    for i=1,#dataTable do
       data[i]:copy(dataTable[i])
       scalarLabels[i] = scalarTable[i]
-      captions[i] = captionTable[i]
    end
-   return data, scalarLabels, captions
+   return data, scalarLabels, captionsTable
 end
 
 -- sampler, samples from the training set.
@@ -347,7 +345,7 @@ function dataset:sample(quantity)
       table.insert(captionTable, caption)
    end
    local data, scalarLabels, captions = tableToOutput(self, dataTable, scalarTable, captionTable)
-   return data, captions, scalarLabels 
+   return data, captions, scalarLabels
 end
 
 function dataset:get(i1, i2)
