@@ -318,7 +318,7 @@ end
 
 -- converts a table of samples (and corresponding labels) to a clean tensor
 local function tableToOutput(self, dataTable, scalarTable, captionTable)
-   local data, scalarLabels, labels, captions
+   local data, scalarLabels, labels
    local quantity = #scalarTable
    assert(dataTable[1]:dim() == 3)
    data = torch.Tensor(quantity,
@@ -328,7 +328,7 @@ local function tableToOutput(self, dataTable, scalarTable, captionTable)
       data[i]:copy(dataTable[i])
       scalarLabels[i] = scalarTable[i]
    end
-   return data, scalarLabels, captionsTable
+   return data, scalarLabels, captionTable
 end
 
 -- sampler, samples from the training set.
