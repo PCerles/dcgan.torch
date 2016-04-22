@@ -70,6 +70,8 @@ local JoinTable = nn.JoinTable
 --local netG = nn.Sequential()
 --local netD = nn.Sequential()
 
+local netG, netD
+
 if conditional then
 	local noiseInput = nn.Identity()()
 	local condInput = nn.Identity()()
@@ -103,7 +105,7 @@ if conditional then
         local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
 	local tanh1 = nn.Tanh()(conv5)
 
-	local netG  = nn.gModule({noiseInput, condInput}, {tanh1})
+	netG  = nn.gModule({noiseInput, condInput}, {tanh1})
 
 	 -- Discriminative Network
         -- input is (nc) x 64 x 64
@@ -136,11 +138,11 @@ if conditional then
         -- state size: 1 x 1 x 1
         local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
         -- state size: 1
-	local netD = nn.gModule({D_input,D_condInput},{D_view1})
+	netD = nn.gModule({D_input,D_condInput},{D_view1})
 
 else
-	local netG = nn.Sequential()
-	local netD = nn.Sequential()
+	netG = nn.Sequential()
+	netD = nn.Sequential()
 	-- Generative Network
 	-- input is Z, going into a convolution
 	netG:add(SpatialFullConvolution(nz, ngf * 8, 4, 4))
