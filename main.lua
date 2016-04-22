@@ -78,7 +78,6 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
         -- concatenation table
         local concat1 = JoinTable(1)({inputs[1],inputs[2]})
         local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(concat1)
-        local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
         local relu1 = nn.ReLU(true)(bn1)
         
         --concat2 = JoinTable(1)({relu1,condInput})
@@ -186,7 +185,6 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
         return netD
     end
 end
-
 local netG = nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
 local netD = nets.discriminativeNet(ndf, in_size, cond_size, conditional)
 
@@ -290,7 +288,7 @@ local fDx = function(x)
 
    -- train with real
    data_tm:reset(); data_tm:resume()
-   local real = data:getBatch()
+   local real, captions = data:getBatch()
    data_tm:stop()
    input:copy(real)
    label:fill(real_label)
@@ -412,4 +410,3 @@ for epoch = 1, opt.niter do
    print(('End of epoch %d / %d \t Time Taken: %.3f'):format(
             epoch, opt.niter, epoch_tm:time().real))
 end
-

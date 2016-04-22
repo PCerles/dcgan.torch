@@ -8,6 +8,8 @@
 ]]--
 
 require 'image'
+require 'io'
+require 'paths'
 paths.dofile('dataset.lua')
 
 -- This file contains the data-loading logic and details.
@@ -66,7 +68,17 @@ local trainHook = function(self, path)
    -- do hflip with probability 0.5
    if torch.uniform() > 0.5 then out = image.hflip(out); end
    out:mul(2):add(-1) -- make it [0, 1] -> [-1, 1]
-   return out
+
+   --load caption
+   local caption_path = path:gsub('data/images', 'captions') --change this if we move the images or captions
+   caption_path = caption_path:gsub('jpg', 'txt')
+   local caption = 'NONE'
+   if paths.filep(caption_path) then
+     local caption_file = io.open(caption_path)
+     caption = caption_file:read('*a')
+     caption_file:close()
+   end
+   return out, caption
 end
 
 --------------------------------------
