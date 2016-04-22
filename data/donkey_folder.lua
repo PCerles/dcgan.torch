@@ -9,6 +9,7 @@
 
 require 'image'
 require 'io'
+require 'paths'
 paths.dofile('dataset.lua')
 
 -- This file contains the data-loading logic and details.
@@ -71,9 +72,12 @@ local trainHook = function(self, path)
    --load caption
    local caption_path = path:gsub('data/images', 'captions') --change this if we move the images or captions
    caption_path = caption_path:gsub('jpg', 'txt')
-   local caption_file = io.open(caption_path)
-   local caption = caption_file:read('*a')
-   caption_file:close()
+   local caption = 'NONE'
+   if paths.filep(caption_path) then
+     local caption_file = io.open(caption_path)
+     caption = caption_file:read('*a')
+     caption_file:close()
+   end
    return out, caption
 end
 
