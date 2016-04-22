@@ -70,7 +70,7 @@ local JoinTable = nn.JoinTable
 --local netG = nn.Sequential()
 --local netD = nn.Sequential()
 
-if conditional then 
+if conditional then
 	local noiseInput = nn.Identity()()
 	local condInput = nn.Identity()()
 	-- input is Z + C, going into a convolution
@@ -79,7 +79,7 @@ if conditional then
 	local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(concat1)
         local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
 	local relu1 = nn.ReLU(true)(bn1)
-	
+
 	--concat2 = JoinTable(1)({relu1,condInput})
 	--conv2 = (SpatialFullConvolution(ngf * 8 + ncond, ngf * 4, 4, 4, 2, 2, 1, 1))(concat2)
         local conv2 = (SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))(relu1)
@@ -102,7 +102,7 @@ if conditional then
 	--conv5 = SpatialFullConvolution(ngf + ncond, nc, 4, 4, 2, 2, 1, 1)(concat5)
         local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
 	local tanh1 = nn.Tanh()(conv5)
-	
+
 	local netG  = nn.gModule({noiseInput, condInput}, {tanh1})
 
 	 -- Discriminative Network
@@ -136,8 +136,8 @@ if conditional then
         -- state size: 1 x 1 x 1
         local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
         -- state size: 1
-	local netD = nn.gModule({D_input,D_condInput},{D_view1})	
-	
+	local netD = nn.gModule({D_input,D_condInput},{D_view1})
+
 else
 	local netG = nn.Sequential()
 	local netD = nn.Sequential()
@@ -158,7 +158,7 @@ else
 	netG:add(SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1))
 	netG:add(nn.Tanh())
 	-- state size: (nc) x 64 x 64
-		
+
 	-- Discriminative Network
 	-- input is (nc) x 64 x 64
 	netD:add(SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1))
@@ -232,7 +232,7 @@ local fDx = function(x)
 
    -- train with real
    data_tm:reset(); data_tm:resume()
-   local real = data:getBatch()
+   local real, captions = data:getBatch()
    data_tm:stop()
    input:copy(real)
    label:fill(real_label)
@@ -325,4 +325,3 @@ for epoch = 1, opt.niter do
    print(('End of epoch %d / %d \t Time Taken: %.3f'):format(
             epoch, opt.niter, epoch_tm:time().real))
 end
-

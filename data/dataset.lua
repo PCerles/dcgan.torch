@@ -317,18 +317,20 @@ function dataset:getByClass(class)
 end
 
 -- converts a table of samples (and corresponding labels) to a clean tensor
-local function tableToOutput(self, dataTable, scalarTable)
-   local data, scalarLabels, labels
+local function tableToOutput(self, dataTable, scalarTable, captionTable)
+   local data, scalarLabels, labels, captions
    local quantity = #scalarTable
    assert(dataTable[1]:dim() == 3)
    data = torch.Tensor(quantity,
 		       self.sampleSize[1], self.sampleSize[2], self.sampleSize[3])
+   captions = torch.LongTensor(quantity):fill("hello")
    scalarLabels = torch.LongTensor(quantity):fill(-1111)
    for i=1,#dataTable do
       data[i]:copy(dataTable[i])
       scalarLabels[i] = scalarTable[i]
+      captions[i] = captionTable[i]
    end
-   return data, scalarLabels
+   return data, scalarLabels, captions
 end
 
 -- sampler, samples from the training set.
@@ -336,14 +338,16 @@ function dataset:sample(quantity)
    assert(quantity)
    local dataTable = {}
    local scalarTable = {}
+   local captionTable = {}
    for i=1,quantity do
       local class = torch.random(1, #self.classes)
-      local out = self:getByClass(class)
+      local out, caption = self:getByClass(class)
       table.insert(dataTable, out)
       table.insert(scalarTable, class)
+      table.insert(captionTable, caption)
    end
-   local data, scalarLabels = tableToOutput(self, dataTable, scalarTable)
-   return data, scalarLabels
+   local data, scalarLabels, captions = tableToOutput(self, dataTable, scalarTable, captionTable)
+   return data, captions, scalarLabels 
 end
 
 function dataset:get(i1, i2)
