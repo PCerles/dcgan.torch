@@ -1,5 +1,6 @@
 require 'torch'
 require 'nn'
+require 'nngraph'
 require 'optim'
 util = paths.dofile('util.lua')
 w2vutil = require 'w2vutils'
@@ -23,7 +24,7 @@ opt = {
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
    name = 'experiment1',
    noise = 'normal',       -- uniform / normal
-   conditional = false
+   conditional = true 
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -72,12 +73,16 @@ local nets = {}
 function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
     if conditional then
         local inputs = {}
-        table.insert(inputs, nn.Identity()())
-        table.insert(inputs, nn.Identity()())
+	table.insert(inputs, nn.Identity()())
+	table.insert(inputs, nn.Identity()())
+	local noise = inputs[1]
+	local cond = inputs[2]
         -- input is Z + C, going into a convolution
         -- concatenation table
-        local concat1 = JoinTable(1)({inputs[1],inputs[2]})
+        local concat1 = JoinTable(1)({noise, cond})
+
         local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(concat1)
+	local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
         local relu1 = nn.ReLU(true)(bn1)
         
         --concat2 = JoinTable(1)({relu1,condInput})
@@ -95,16 +100,18 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
         --concat4 = JoinTable(1)({relu3,condInput})
         --conv4 = SpatialFullConvolution(ngf * 2 + ncond, ngf, 4, 4, 2, 2, 1, 1)(concat4)
         local conv4 = SpatialFullConvolution(ngf * 2, ngf, 4, 4, 2, 2, 1, 1)(relu3)
-        local bn4 = SpatialBatchNormalization(ngf)
-        local relu4 = nn.ReLU(true)
+        local bn4 = SpatialBatchNormalization(ngf)(conv4)
+        local relu4 = nn.ReLU(true)(bn4)
 
         --concat5 = JoinTable(1)({relu4,condInput})
         --conv5 = SpatialFullConvolution(ngf + ncond, nc, 4, 4, 2, 2, 1, 1)(concat5)
         local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
         local output = nn.Tanh()(conv5)
         
-        return nn.gModule(inputs, output)
-    else
+        local netG = nn.gModule(inputs, {output})
+	graph.dot(netG.fg, 'map', 'map')
+   	return netG
+    else 
         local netG = nn.Sequential()
         -- Generative Network
         -- input is Z, going into a convolution
@@ -134,16 +141,16 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
         local D_input = nn.Identity()()
         local D_condInput = nn.Identity()()
               --D_conv1 = SpatialConvolution(nc + ncond, ndf, 4, 4, 2, 2, 1, 1)(D_input)
-              local D_conv1 = SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1)(D_input)
+        local D_conv1 = SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1)(D_input)
         local D_relu1 = nn.LeakyReLU(0.2, true)(D_conv1)
               -- state size: (ndf) x 32 x 32
               --D_conv2 = SpatialConvolution(ndf + cond, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
-              local D_conv2 = SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
+        local D_conv2 = SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
         local D_bn2 = SpatialBatchNormalization(ndf * 2)(D_conv2)
         local D_relu2 = nn.LeakyReLU(0.2, true)(D_bn2)
               -- state size: (ndf*2) x 16 x 16
               --D_conv3 = SpatialConvolution(ndf * 2 + ncond, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
-              local D_conv3 = SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
+        local D_conv3 = SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
         local D_bn3 = SpatialBatchNormalization(ndf * 4)(D_conv3)
         local D_relu3 = nn.LeakyReLU(0.2, true)(D_bn3)
               -- state size: (ndf*4) x 8 x 8
@@ -241,12 +248,22 @@ local fDxCond = function(x)
    -- train with real
    data_tm:reset(); data_tm:resume()
    local real = data:getBatch()
-   -- get caption for data, put in cond
-   local caption
-
    data_tm:stop()
+   caption_rep = {}
+   for key,value in ipairs(captions) 
+        local temp_rep = torch.zeros(300)
+        for word in  captions[key]:gmatch("%w+") do
+                temp_rep = temp_rep + w2vutil:word2vec(word)
+        end
+        table.insert(caption_rep,temp_rep)
+   end
+   caption_rep = torch.cat(caption_rep,2)
+   caption_rep = caption_rep:transpose() --caption_rep is batch_size x 300 tensor
+   local batch_size = caption_rep:size(1)
+
+
    input:copy(real)
-   cond:copy(caption)
+   cond:copy(caption_rep)
 
    label:fill(real_label)
 
@@ -262,7 +279,8 @@ local fDxCond = function(x)
        noise:normal(0, 1)
    end
    -- sample a potential caption
-   local caption;
+   local rand_index = torch.random(0,batch_size)
+   local caption = caption_rep[rand_index] --word2vec representation of the caption...
    local fake = netG:forward({noise, cond})
 
    input:copy(fake)
