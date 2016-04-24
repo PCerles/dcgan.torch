@@ -109,7 +109,6 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
         local output = nn.Tanh()(conv5)
         
         local netG = nn.gModule(inputs, {output})
-	graph.dot(netG.fg, 'map', 'map')
    	return netG
     else 
         local netG = nn.Sequential()
@@ -160,14 +159,17 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
         local D_relu4 = nn.LeakyReLU(0.2, true)(D_bn4)
               -- state size: (ndf*8) x 4 x 4
               --D_conv5 = SpatialConvolution(ndf * 8 + ncond, 1, 4, 4)(D_relu4)
-        local D_conv5 = SpatialConvolution(ndf * 8, 1, 4, 4)(D_relu4)
-        local D_reshape5 = nn.Reshape(ndf*8*4*4,1)(D_conv5)
+        local D_reshape5 = nn.Reshape(ndf*8*4*4, 1)(D_relu4)
         local D_concat5 = JoinTable(1)({D_reshape5,D_condInput})
-        local D_sigmoid1 = nn.Sigmoid()(D_concat5)
+	local D_linear5 = nn.Linear(ndf*8*4*4 + cond_size, 1)(D_concat5)
+        local D_sigmoid1 = nn.Sigmoid()(D_linear5)
         -- state size: 1 x 1 x 1
         local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
         -- state size: 1
-        return nn.gModule({D_input,D_condInput},{D_view1})
+        local netD = nn.gModule({D_input,D_condInput},{D_view1})
+	--print(D_sigmoid1:graph():reverse())
+	--graph.dot(netD.fg, 'Discrim', 'Discrim')
+	return netD
     else 
         local netD = nn.Sequential()    
         -- Discriminative Network
@@ -193,7 +195,7 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
     end
 end
 local netG = nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
-local netD = nets.discriminativeNet(ndf, in_size, cond_size, conditional)
+local netD = nets.discriminativeNet(ndf, in_size, ncond, conditional)
 
 netG:apply(weights_init)
 netD:apply(weights_init)
@@ -247,10 +249,10 @@ local fDxCond = function(x)
 
    -- train with real
    data_tm:reset(); data_tm:resume()
-   local real = data:getBatch()
+   local real, captions = data:getBatch()
    data_tm:stop()
    caption_rep = {}
-   for key,value in ipairs(captions) 
+   for key,value in ipairs(captions) do
         local temp_rep = torch.zeros(300)
         for word in  captions[key]:gmatch("%w+") do
                 temp_rep = temp_rep + w2vutil:word2vec(word)
@@ -258,9 +260,8 @@ local fDxCond = function(x)
         table.insert(caption_rep,temp_rep)
    end
    caption_rep = torch.cat(caption_rep,2)
-   caption_rep = caption_rep:transpose() --caption_rep is batch_size x 300 tensor
+   caption_rep = caption_rep:transpose(1, 2) --caption_rep is batch_size x 300 tensor
    local batch_size = caption_rep:size(1)
-
 
    input:copy(real)
    cond:copy(caption_rep)
