@@ -4,7 +4,7 @@ require 'nngraph'
 require 'optim'
 util = paths.dofile('util.lua')
 w2vutil = require 'w2vutils'
-
+nngraph.setDebug(true)
 opt = {
    dataset = 'lsun',       -- imagenet / lsun / folder
    batchSize = 64,
@@ -24,7 +24,7 @@ opt = {
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
    name = 'experiment1',
    noise = 'normal',       -- uniform / normal
-   conditional = true 
+   conditional = true
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -72,19 +72,16 @@ local nets = {}
 
 function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
     if conditional then
-        local inputs = {}
-	table.insert(inputs, nn.Identity()())
-	table.insert(inputs, nn.Identity()())
-	local noise = inputs[1]
-	local cond = inputs[2]
+        local noise = nn.Identity()()
+	local cond = nn.Identity()()
         -- input is Z + C, going into a convolution
         -- concatenation table
-        local concat1 = JoinTable(1)({noise, cond})
+        local concat1 = JoinTable(2)({noise, cond})
 
         local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(concat1)
-	local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
+	      local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
         local relu1 = nn.ReLU(true)(bn1)
-        
+
         --concat2 = JoinTable(1)({relu1,condInput})
         --conv2 = (SpatialFullConvolution(ngf * 8 + ncond, ngf * 4, 4, 4, 2, 2, 1, 1))(concat2)
         local conv2 = (SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))(relu1)
@@ -93,7 +90,7 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
 
         --concat3 = JoinTable(1)({relu2,condInput})
         --conv3 = SpatialFullConvolution(ngf * 4 + ncond, ngf * 2, 4, 4, 2, 2, 1, 1)(concat3)
-        local conv3 = (SpatialFullConvolution(ngf * 4, ngf * 4, 4, 4, 2, 2, 1, 1))(relu2)
+        local conv3 = (SpatialFullConvolution(ngf * 4, ngf * 2, 4, 4, 2, 2, 1, 1))(relu2)
         local bn3 = SpatialBatchNormalization(ngf * 2)(conv3)
         local relu3 = nn.ReLU(true)(bn3)
 
@@ -107,10 +104,10 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
         --conv5 = SpatialFullConvolution(ngf + ncond, nc, 4, 4, 2, 2, 1, 1)(concat5)
         local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
         local output = nn.Tanh()(conv5)
-        
-        local netG = nn.gModule(inputs, {output})
-   	return netG
-    else 
+
+        local netG = nn.gModule({noise,cond}, {output})
+   	    return netG
+    else
         local netG = nn.Sequential()
         -- Generative Network
         -- input is Z, going into a convolution
@@ -158,20 +155,21 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
         local D_bn4 = SpatialBatchNormalization(ndf * 8)(D_conv4)
         local D_relu4 = nn.LeakyReLU(0.2, true)(D_bn4)
               -- state size: (ndf*8) x 4 x 4
-              --D_conv5 = SpatialConvolution(ndf * 8 + ncond, 1, 4, 4)(D_relu4)
-        local D_reshape5 = nn.Reshape(ndf*8*4*4, 1)(D_relu4)
-        local D_concat5 = JoinTable(1)({D_reshape5,D_condInput})
-	local D_linear5 = nn.Linear(ndf*8*4*4 + cond_size, 1)(D_concat5)
+        --local D_conv5 = SpatialConvolution(ndf * 8 , 1, 4, 4)(D_relu4)
+        local D_reshape5 = nn.Reshape(ndf*8*4*4,1)(D_relu4)
+	local D_concat5 = JoinTable(2)({D_reshape5,D_condInput})
+	local after_reshape = nn.Reshape(ndf*8*4*4 + cond_size)(D_concat5)
+	local D_linear5 = nn.Linear(ndf*8*4*4 + cond_size, 1)(after_reshape)
         local D_sigmoid1 = nn.Sigmoid()(D_linear5)
         -- state size: 1 x 1 x 1
-        local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
+        --local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
         -- state size: 1
-        local netD = nn.gModule({D_input,D_condInput},{D_view1})
+        local netD = nn.gModule({D_input,D_condInput},{D_sigmoid1})
 	--print(D_sigmoid1:graph():reverse())
 	--graph.dot(netD.fg, 'Discrim', 'Discrim')
 	return netD
-    else 
-        local netD = nn.Sequential()    
+    else
+        local netD = nn.Sequential()
         -- Discriminative Network
         -- input is (nc) x 64 x 64
         netD:add(SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1))
@@ -271,7 +269,7 @@ local fDxCond = function(x)
    local output = netD:forward({input, cond}) -- run with image + conditional info
    local errD_real = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
-   netD:backward(input, df_do)
+   netD:backward({input,cond}, df_do)
 
    -- train with fake
    if opt.noise == 'uniform' then -- regenerate random noise
@@ -280,18 +278,16 @@ local fDxCond = function(x)
        noise:normal(0, 1)
    end
    -- sample a potential caption
-   local rand_index = torch.random(0,batch_size)
-   local caption = caption_rep[rand_index] --word2vec representation of the caption...
    local fake = netG:forward({noise, cond})
 
    input:copy(fake)
-   cond:copy(caption)
+   cond:copy(cond)
    label:fill(fake_label)
 
    local output = netD:forward({input, cond})
    local errD_fake = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
-   netD:backward({input, cond}, df_do)
+   netD:backward({input,cond}, df_do)
 
    errD = errD_real + errD_fake
 
@@ -331,9 +327,7 @@ local fDx = function(x)
    local errD_fake = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
    netD:backward(input, df_do)
-
    errD = errD_real + errD_fake
-
    return errD, gradParametersD
 end
 
@@ -374,9 +368,9 @@ local fGxCond = function(x)
    local output = netD.output -- netD:forward(input) was already executed in fDx, so save computation
    errG = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
-   local df_dg = netD:updateGradInput({input, cond}, df_do)
-
-   netG:backward(noise, df_dg)
+   local df_dg = netD:updateGradInput({input,cond}, df_do)
+   local df_di = df_dg[1]
+   netG:backward(noise, df_di)
    return errG, gradParametersG
 end
 
@@ -403,10 +397,10 @@ for epoch = 1, opt.niter do
       -- display
       counter = counter + 1
       if counter % 10 == 0 and opt.display then
-          local fake = netG:forward(noise_vis)
-          local real = data:getBatch()
-          disp.image(fake, {win=opt.display_id, title=opt.name})
-          disp.image(real, {win=opt.display_id * 3, title=opt.name})
+          --local fake = netG:forward({noise_vis,cond})
+          --local real = data:getBatch()
+          --disp.image(fake, {win=opt.display_id, title=opt.name})
+          --disp.image(real, {win=opt.display_id * 3, title=opt.name})
       end
 
       -- logging
@@ -422,6 +416,7 @@ for epoch = 1, opt.niter do
    paths.mkdir('checkpoints')
    parametersD, gradParametersD = nil, nil -- nil them to avoid spiking memory
    parametersG, gradParametersG = nil, nil
+   print(netG)
    util.save('checkpoints/' .. opt.name .. '_' .. epoch .. '_net_G.t7', netG, opt.gpu)
    util.save('checkpoints/' .. opt.name .. '_' .. epoch .. '_net_D.t7', netD, opt.gpu)
    parametersD, gradParametersD = netD:getParameters() -- reflatten the params and get them
