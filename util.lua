@@ -38,7 +38,7 @@ function util.save(filename, net, gpu)
 	    	    newGradInput[i] = m.gradInput[i].new()
           end
 	        m.gradInput = newGradInput
-	      elseif if m.gradInput.new then
+	      elseif  m.gradInput.new then
            m.gradInput = m.gradInput.new()
         end
         m.finput = m.finput and m.finput.new() or nil
@@ -56,8 +56,16 @@ function util.save(filename, net, gpu)
             m.gradBias = m.gradBias:clone()
         end
     end
-    netsave.output = netsave.output.new()
-    netsave.gradInput = netsave.gradInput.new()
+    netsave.output = netsave.output and netsave.output.new() or nil
+    if type(netsave.gradInput) == 'table' then
+	newGradInput = {}
+	for i=1,#netsave.gradInput do
+   	    newGradInput[i] = netsave.gradInput[i].new()
+ 	end
+	netsave.gradInput = newGradInput
+    elseif netsave.gradInput.new then
+	netsave.gradInput = netsave.gradInput.new()
+    end
 
     netsave:apply(function(m) if m.weight then m.gradWeight = nil; m.gradBias = nil; end end)
 
