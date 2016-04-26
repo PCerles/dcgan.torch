@@ -2,6 +2,7 @@ require 'torch'
 require 'nn'
 require 'nngraph'
 require 'optim'
+require 'cunn'
 util = paths.dofile('util.lua')
 w2vutil = require 'w2vutils'
 nngraph.setDebug(true)
@@ -15,16 +16,17 @@ opt = {
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
    nThreads = 4,           -- #  of data loading threads to use
-   niter = 25,             -- #  of iter at starting learning rate
+   niter = 500,             -- #  of iter at starting learning rate
    lr = 0.0002,            -- initial learning rate for adam
    beta1 = 0.5,            -- momentum term of adam
    ntrain = math.huge,     -- #  of examples per epoch. math.huge for full dataset
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
-   gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
+   gpu = 2,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
    name = 'experiment1',
    noise = 'normal',       -- uniform / normal
-   conditional = true
+   conditional = true,
+   checkpoint = 0
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -192,12 +194,16 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
         return netD
     end
 end
-local netG = nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
-local netD = nets.discriminativeNet(ndf, in_size, ncond, conditional)
 
-netG:apply(weights_init)
-netD:apply(weights_init)
-
+if opt.checkpoint == 0 then
+	netG = nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
+	netD = nets.discriminativeNet(ndf, in_size, ncond, conditional)
+	netG:apply(weights_init)
+	netD:apply(weights_init)
+else
+	netG = util.load('checkpoints/' .. opt.name .. '_' .. opt.checkpoint .. '_net_G.t7', opt.gpu)
+	netD = util.load('checkpoints/' .. opt.name .. '_' .. opt.checkpoint .. '_net_D.t7', opt.gpu)
+end
 local criterion = nn.BCECriterion()
 ---------------------------------------------------------------------------
 optimStateG = {
@@ -373,7 +379,6 @@ local fGxCond = function(x)
    netG:backward(noise, df_di)
    return errG, gradParametersG
 end
-
 -- train
 for epoch = 1, opt.niter do
    epoch_tm:reset()
@@ -417,8 +422,11 @@ for epoch = 1, opt.niter do
    parametersD, gradParametersD = nil, nil -- nil them to avoid spiking memory
    parametersG, gradParametersG = nil, nil
    print(netG)
-   util.save('checkpoints/' .. opt.name .. '_' .. epoch .. '_net_G.t7', netG, opt.gpu)
-   util.save('checkpoints/' .. opt.name .. '_' .. epoch .. '_net_D.t7', netD, opt.gpu)
+   if epoch % 25 == 0 then
+	real_epoch = checkpoint + epoch
+   	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_G.t7', netG, opt.gpu)
+   	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_D.t7', netD, opt.gpu)
+   end
    parametersD, gradParametersD = netD:getParameters() -- reflatten the params and get them
    parametersG, gradParametersG = netG:getParameters()
    print(('End of epoch %d / %d \t Time Taken: %.3f'):format(

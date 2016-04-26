@@ -1,6 +1,9 @@
 require 'image'
 require 'nn'
+require 'nngraph'
+require 'cunn'
 util = paths.dofile('util.lua')
+w2vutil = require 'w2vutils'
 torch.setdefaulttensortype('torch.FloatTensor')
 
 opt = {
@@ -12,17 +15,25 @@ opt = {
     name = 'generation1',  -- name of the file saved
     gpu = 1,               -- gpu mode. 0 = CPU, 1 = GPU
     display = 1,           -- Display image: 0 = false, 1 = true
-    nz = 100,              
+    nz = 100,
+    ncond = 300              
 }
 for k,v in pairs(opt) do opt[k] = tonumber(os.getenv(k)) or os.getenv(k) or opt[k] end
 print(opt)
 if opt.display == 0 then opt.display = false end
 
 assert(net ~= '', 'provide a generator model')
-
+print "getting here"
 noise = torch.Tensor(opt.batchSize, opt.nz, opt.imsize, opt.imsize)
+caption = "dog in a field"
+local temp_rep = torch.zeros(1, opt.ncond)
+for word in  caption:gmatch("%w+") do
+	temp_rep = temp_rep + w2vutil:word2vec(word)
+end
+print "how about here..."
+caption_rep = torch.expand(temp_rep, opt.batchSize, opt.ncond) 
 net = util.load(opt.net, opt.gpu)
-
+print "do we get past here"
 -- for older models, there was nn.View on the top
 -- which is unnecessary, and hinders convolutional generations.
 if torch.type(net:get(1)) == 'nn.View' then
@@ -63,7 +74,7 @@ elseif opt.noisemode == 'linefull' then
         noise:narrow(3, i, 1):narrow(4, i, 1):copy(noiseL * line[i] + noiseR * (1 - line[i]))
     end
 end
-
+print "doing stuff"
 if opt.gpu > 0 then
     require 'cunn'
     require 'cudnn'
@@ -78,7 +89,7 @@ end
 -- this drastically reduces the memory needed to generate samples
 util.optimizeInferenceMemory(net)
 
-local images = net:forward(noise)
+local images = net:forward({noise, caption_rep})
 print('Images size: ', images:size(1)..' x '..images:size(2) ..' x '..images:size(3)..' x '..images:size(4))
 images:add(1):mul(0.5)
 print('Min, Max, Mean, Stdv', images:min(), images:max(), images:mean(), images:std())
