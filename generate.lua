@@ -23,17 +23,14 @@ print(opt)
 if opt.display == 0 then opt.display = false end
 
 assert(net ~= '', 'provide a generator model')
-print "getting here"
 noise = torch.Tensor(opt.batchSize, opt.nz, opt.imsize, opt.imsize)
-caption = "dog in a field"
+caption = "red bird"
 local temp_rep = torch.zeros(1, opt.ncond)
 for word in  caption:gmatch("%w+") do
 	temp_rep = temp_rep + w2vutil:word2vec(word)
 end
-print "how about here..."
 caption_rep = torch.expand(temp_rep, opt.batchSize, opt.ncond) 
 net = util.load(opt.net, opt.gpu)
-print "do we get past here"
 -- for older models, there was nn.View on the top
 -- which is unnecessary, and hinders convolutional generations.
 if torch.type(net:get(1)) == 'nn.View' then
@@ -95,6 +92,11 @@ images:add(1):mul(0.5)
 print('Min, Max, Mean, Stdv', images:min(), images:max(), images:mean(), images:std())
 image.save(opt.name .. '.png', image.toDisplayTensor(images))
 print('Saved image to: ', opt.name .. '.png')
+
+--for i=1,images:size(1) do
+--    image.save(opt.name .. '_' .. i .. '.png', image.toDisplayTensor(images[i]))
+--    print('Saved image ' .. i)
+--end
 
 if opt.display then
     disp = require 'display'

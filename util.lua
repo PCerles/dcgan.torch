@@ -68,7 +68,7 @@ function util.save(filename, net, gpu)
     end
 
     netsave:apply(function(m) if m.weight then m.gradWeight = nil; m.gradBias = nil; end end)
-
+    netsave = netsave:float()
     torch.save(filename, netsave)
 end
 

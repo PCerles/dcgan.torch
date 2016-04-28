@@ -3,7 +3,9 @@ require 'nn'
 require 'nngraph'
 require 'optim'
 require 'cunn'
+package.path = package.path .. ";/home/vashishtm/ImageGen/neuraltalk2/?.lua"
 util = paths.dofile('util.lua')
+--ntalk_util = require('external')
 w2vutil = require 'w2vutils'
 nngraph.setDebug(true)
 opt = {
@@ -29,6 +31,8 @@ opt = {
    checkpoint = 0
 }
 
+--local ntalk_model =  'model/d1-501-1448236541.t7_cpu.t7'
+--local ntalk_protos = ntalk_util.getProtos(ntalk_model, -1)
 -- one-line argument parser. parses enviroment variables to override the defaults
 for k,v in pairs(opt) do opt[k] = tonumber(os.getenv(k)) or os.getenv(k) or opt[k] end
 print(opt)
@@ -225,7 +229,6 @@ local tm = torch.Timer()
 local data_tm = torch.Timer()
 ----------------------------------------------------------------------------
 if opt.gpu > 0 then
-   require 'cunn'
    cutorch.setDevice(opt.gpu)
    input = input:cuda();  noise = noise:cuda();  label = label:cuda(); cond = cond:cuda();
    netG = util.cudnn(netG);     netD = util.cudnn(netD)
@@ -253,7 +256,7 @@ local fDxCond = function(x)
 
    -- train with real
    data_tm:reset(); data_tm:resume()
-   local real, captions = data:getBatch()
+   local real, captions,caption_vecs = data:getBatch()
    data_tm:stop()
    caption_rep = {}
    for key,value in ipairs(captions) do
@@ -267,6 +270,10 @@ local fDxCond = function(x)
    caption_rep = caption_rep:transpose(1, 2) --caption_rep is batch_size x 300 tensor
    local batch_size = caption_rep:size(1)
 
+   print "caption vector sentence embedding..."
+   print(caption_vecs:size())
+   --/ntalk print(ntalk_util.getLoss(ntalk_protos, real, captions))
+  
    input:copy(real)
    cond:copy(caption_rep)
 
@@ -423,7 +430,7 @@ for epoch = 1, opt.niter do
    parametersG, gradParametersG = nil, nil
    print(netG)
    if epoch % 25 == 0 then
-	real_epoch = checkpoint + epoch
+	real_epoch = opt.checkpoint + epoch
    	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_G.t7', netG, opt.gpu)
    	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_D.t7', netD, opt.gpu)
    end

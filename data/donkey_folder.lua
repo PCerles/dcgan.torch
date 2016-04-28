@@ -11,6 +11,7 @@ require 'image'
 require 'io'
 require 'paths'
 paths.dofile('dataset.lua')
+vigo = require 'csvigo'
 
 -- This file contains the data-loading logic and details.
 -- It is run by each data-loader thread.
@@ -70,15 +71,29 @@ local trainHook = function(self, path)
    out:mul(2):add(-1) -- make it [0, 1] -> [-1, 1]
 
    --load caption
-   local caption_path = path:gsub('data/images', 'captions') --change this if we move the images or captions
-   caption_path = caption_path:gsub('jpg', 'txt')
+   local caption_path = path:gsub('data/images', 'captions')
+   caption_path = caption_path:gsub('jpg','txt')
    local caption = 'NONE'
+   -- load caption_rep
+   local caption_rep_path = path:gsub('data/images', 'caption_vecs')
+   caption_rep_path = caption_rep_path:gsub('jpg','csv')
+   local caption_rep = 'NONE'
    if paths.filep(caption_path) then
      local caption_file = io.open(caption_path)
      caption = caption_file:read('*a')
      caption_file:close()
+   end 
+   if paths.filep(caption_rep_path) then
+     local temp_vec = vigo.load(caption_rep_path)
+     print(temp_vec)
+     for k,v in pairs(temp_vec) do local temp_key = k end
+     local temp_table = {}
+     table.insert(temp_table,temp_key)
+     print(temp_table)
+     for k,v in pairs(temp_vec[temp_key]) do table.insert(temp_table,v) end
+     caption_rep = torch.Tensor(temp_table) 
    end
-   return out, caption
+   return out, caption,caption_rep
 end
 
 --------------------------------------
