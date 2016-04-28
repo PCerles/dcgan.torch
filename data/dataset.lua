@@ -317,18 +317,19 @@ function dataset:getByClass(class)
 end
 
 -- converts a table of samples (and corresponding labels) to a clean tensor
-local function tableToOutput(self, dataTable, scalarTable, captionTable)
-   local data, scalarLabels, labels
+local function tableToOutput(self, dataTable, scalarTable, captionTable, captionRepTable)
+   local data, scalarLabels, labels,captionRepMat
    local quantity = #scalarTable
    assert(dataTable[1]:dim() == 3)
    data = torch.Tensor(quantity,
 		       self.sampleSize[1], self.sampleSize[2], self.sampleSize[3])
    scalarLabels = torch.LongTensor(quantity):fill(-1111)
+   captionRepMat = torch.cat(captionRepTable, 2)
    for i=1,#dataTable do
       data[i]:copy(dataTable[i])
       scalarLabels[i] = scalarTable[i]
    end
-   return data, scalarLabels, captionTable
+   return data, scalarLabels, captionTable, captionRepMat:transpose(1,2)
 end
 
 -- sampler, samples from the training set.
@@ -337,15 +338,17 @@ function dataset:sample(quantity)
    local dataTable = {}
    local scalarTable = {}
    local captionTable = {}
+   local captionRepTable = {}
    for i=1,quantity do
       local class = torch.random(1, #self.classes)
-      local out, caption = self:getByClass(class)
+      local out, caption,caption_rep = self:getByClass(class)
       table.insert(dataTable, out)
       table.insert(scalarTable, class)
       table.insert(captionTable, caption)
+      table.insert(captionRepTable,caption_rep)
    end
-   local data, scalarLabels, captions = tableToOutput(self, dataTable, scalarTable, captionTable)
-   return data, captions, scalarLabels
+   local data, scalarLabels, captions,capRepMat = tableToOutput(self, dataTable, scalarTable, captionTable,captionRepTable)
+   return data, captions,capRepMat, scalarLabels
 end
 
 function dataset:get(i1, i2)

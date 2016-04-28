@@ -85,11 +85,9 @@ local trainHook = function(self, path)
    end 
    if paths.filep(caption_rep_path) then
      local temp_vec = vigo.load(caption_rep_path)
-     print(temp_vec)
-     for k,v in pairs(temp_vec) do local temp_key = k end
+     for k,v in pairs(temp_vec) do temp_key = k end
      local temp_table = {}
      table.insert(temp_table,temp_key)
-     print(temp_table)
      for k,v in pairs(temp_vec[temp_key]) do table.insert(temp_table,v) end
      caption_rep = torch.Tensor(temp_table) 
    end

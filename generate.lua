@@ -2,8 +2,9 @@ require 'image'
 require 'nn'
 require 'nngraph'
 require 'cunn'
+vigo = require 'csvigo'
 util = paths.dofile('util.lua')
-w2vutil = require 'w2vutils'
+--w2vutil = require 'w2vutils'
 torch.setdefaulttensortype('torch.FloatTensor')
 
 opt = {
@@ -15,8 +16,8 @@ opt = {
     name = 'generation1',  -- name of the file saved
     gpu = 1,               -- gpu mode. 0 = CPU, 1 = GPU
     display = 1,           -- Display image: 0 = false, 1 = true
-    nz = 100,
-    ncond = 300              
+    nz = 200,
+    ncond = 1024              
 }
 for k,v in pairs(opt) do opt[k] = tonumber(os.getenv(k)) or os.getenv(k) or opt[k] end
 print(opt)
@@ -24,12 +25,21 @@ if opt.display == 0 then opt.display = false end
 
 assert(net ~= '', 'provide a generator model')
 noise = torch.Tensor(opt.batchSize, opt.nz, opt.imsize, opt.imsize)
-caption = "red bird"
-local temp_rep = torch.zeros(1, opt.ncond)
-for word in  caption:gmatch("%w+") do
-	temp_rep = temp_rep + w2vutil:word2vec(word)
-end
-caption_rep = torch.expand(temp_rep, opt.batchSize, opt.ncond) 
+caption_path = "/home/vashishtm/ImageGen/caption_vecs/COCO_train2014_000000078827.csv" -- 
+local temp_vec = vigo.load(caption_path)
+local caption_rep
+for k,v in pairs(temp_vec) do temp_key = k end
+	local temp_table = {}
+     	table.insert(temp_table,temp_key)
+     	for k,v in pairs(temp_vec[temp_key]) do table.insert(temp_table,v) end
+     	caption_rep = torch.Tensor(temp_table)
+
+--local temp_rep = torch.zeros(1, opt.ncond)
+--for word in  caption:gmatch("%w+") do
+	--temp_rep = temp_rep + w2vutil:word2vec(word)
+--end
+caption_rep = torch.reshape(caption_rep, 1, opt.ncond)
+caption_rep = torch.expand(caption_rep, opt.batchSize, opt.ncond) 
 net = util.load(opt.net, opt.gpu)
 -- for older models, there was nn.View on the top
 -- which is unnecessary, and hinders convolutional generations.
@@ -85,8 +95,8 @@ end
 -- a function to setup double-buffering across the network.
 -- this drastically reduces the memory needed to generate samples
 util.optimizeInferenceMemory(net)
-
-local images = net:forward({noise, caption_rep})
+local data = torch.cat(noise, caption_rep, 2)
+local images = net:forward(data)
 print('Images size: ', images:size(1)..' x '..images:size(2) ..' x '..images:size(3)..' x '..images:size(4))
 images:add(1):mul(0.5)
 print('Min, Max, Mean, Stdv', images:min(), images:max(), images:mean(), images:std())

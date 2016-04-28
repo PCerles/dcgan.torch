@@ -3,22 +3,23 @@ require 'nn'
 require 'nngraph'
 require 'optim'
 require 'cunn'
-package.path = package.path .. ";/home/vashishtm/ImageGen/neuraltalk2/?.lua"
+package.path = package.path .. ";/home/vashishtm/ImageGen/neuraltalk2/?.lua;/home/vashishtm/ImageGen/neuraltalk2/model/?.t7"
 util = paths.dofile('util.lua')
 --ntalk_util = require('external')
-w2vutil = require 'w2vutils'
+--local ntalk_model =  '../neuraltalk2/model/karpathymodel.t7_cpu.t7'
+--local ntalk_protos = ntalk_util.getProtos(ntalk_model, -1)
 nngraph.setDebug(true)
 opt = {
    dataset = 'lsun',       -- imagenet / lsun / folder
    batchSize = 64,
    loadSize = 96,
    fineSize = 64,
-   nz = 100,               -- #  of dim for Z
-   ncond = 300, 	         -- #  of dim for C
+   nz = 1024,               -- #  of dim for Z
+   ncond = 1024, 	         -- #  of dim for C
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
    nThreads = 4,           -- #  of data loading threads to use
-   niter = 500,             -- #  of iter at starting learning rate
+   niter = 100,             -- #  of iter at starting learning rate
    lr = 0.0002,            -- initial learning rate for adam
    beta1 = 0.5,            -- momentum term of adam
    ntrain = math.huge,     -- #  of examples per epoch. math.huge for full dataset
@@ -31,8 +32,6 @@ opt = {
    checkpoint = 0
 }
 
---local ntalk_model =  'model/d1-501-1448236541.t7_cpu.t7'
---local ntalk_protos = ntalk_util.getProtos(ntalk_model, -1)
 -- one-line argument parser. parses enviroment variables to override the defaults
 for k,v in pairs(opt) do opt[k] = tonumber(os.getenv(k)) or os.getenv(k) or opt[k] end
 print(opt)
@@ -78,14 +77,19 @@ local nets = {}
 
 function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
     if conditional then
-        local noise = nn.Identity()()
-	local cond = nn.Identity()()
+        -- local noise = nn.Identity()()
+        -- local cond = nn.Identity()()
+        
         -- input is Z + C, going into a convolution
         -- concatenation table
-        local concat1 = JoinTable(2)({noise, cond})
+        -- local concat1 = JoinTable(2)({noise, cond})
+        
+        
+        --concatenate before calling net.forward
+        local data = nn.Identity()()
 
-        local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(concat1)
-	      local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
+        local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(data)
+        local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
         local relu1 = nn.ReLU(true)(bn1)
 
         --concat2 = JoinTable(1)({relu1,condInput})
@@ -111,7 +115,7 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
         local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
         local output = nn.Tanh()(conv5)
 
-        local netG = nn.gModule({noise,cond}, {output})
+        local netG = nn.gModule({data}, {output})
    	    return netG
     else
         local netG = nn.Sequential()
@@ -258,25 +262,22 @@ local fDxCond = function(x)
    data_tm:reset(); data_tm:resume()
    local real, captions,caption_vecs = data:getBatch()
    data_tm:stop()
-   caption_rep = {}
-   for key,value in ipairs(captions) do
-        local temp_rep = torch.zeros(300)
-        for word in  captions[key]:gmatch("%w+") do
-                temp_rep = temp_rep + w2vutil:word2vec(word)
-        end
-        table.insert(caption_rep,temp_rep)
-   end
-   caption_rep = torch.cat(caption_rep,2)
-   caption_rep = caption_rep:transpose(1, 2) --caption_rep is batch_size x 300 tensor
-   local batch_size = caption_rep:size(1)
+   --caption_rep = {}
+   --for key,value in ipairs(captions) do
+   --     local temp_rep = torch.zeros(300)
+   --     for word in  captions[key]:gmatch("%w+") do
+   --             temp_rep = temp_rep + w2vutil:word2vec(word)
+   --     end
+   --     table.insert(caption_rep,temp_rep)
+   --end
+   --caption_rep = torch.cat(caption_rep,2)
+   --caption_rep = caption_rep:transpose(1, 2) --caption_rep is batch_size x 300 tensor
+   --local batch_size = caption_rep:size(1)
 
-   print "caption vector sentence embedding..."
-   print(caption_vecs:size())
    --/ntalk print(ntalk_util.getLoss(ntalk_protos, real, captions))
   
    input:copy(real)
-   cond:copy(caption_rep)
-
+   cond:copy(caption_vecs)
    label:fill(real_label)
 
    local output = netD:forward({input, cond}) -- run with image + conditional info
@@ -291,7 +292,8 @@ local fDxCond = function(x)
        noise:normal(0, 1)
    end
    -- sample a potential caption
-   local fake = netG:forward({noise, cond})
+   local joinData = torch.cat(noise, cond, 2)
+   local fake = netG:forward(joinData)
 
    input:copy(fake)
    cond:copy(cond)
@@ -361,7 +363,6 @@ local fGx = function(x)
    errG = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
    local df_dg = netD:updateGradInput(input, df_do)
-
    netG:backward(noise, df_dg)
    return errG, gradParametersG
 end
@@ -383,7 +384,8 @@ local fGxCond = function(x)
    local df_do = criterion:backward(output, label)
    local df_dg = netD:updateGradInput({input,cond}, df_do)
    local df_di = df_dg[1]
-   netG:backward(noise, df_di)
+   local joinData = torch.cat(noise, cond, 2)
+   netG:backward(joinData, df_di)
    return errG, gradParametersG
 end
 -- train
@@ -409,7 +411,8 @@ for epoch = 1, opt.niter do
       -- display
       counter = counter + 1
       if counter % 10 == 0 and opt.display then
-          --local fake = netG:forward({noise_vis,cond})
+          --local data = torch.cat(noise_vis, cond, 2)
+          --local fake = netG:forward(data)
           --local real = data:getBatch()
           --disp.image(fake, {win=opt.display_id, title=opt.name})
           --disp.image(real, {win=opt.display_id * 3, title=opt.name})
