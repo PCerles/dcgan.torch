@@ -13,10 +13,10 @@ opt = {
     net = '',              -- path to the generator network
     imsize = 1,            -- used to produce larger images. 1 = 64px. 2 = 80px, 3 = 96px, ...
     noisemode = 'random',  -- random / line / linefull1d / linefull
-    name = 'generation1',  -- name of the file saved
+    name = 'food2',  -- name of the file saved
     gpu = 1,               -- gpu mode. 0 = CPU, 1 = GPU
     display = 1,           -- Display image: 0 = false, 1 = true
-    nz = 200,
+    nz = 100,
     ncond = 1024              
 }
 for k,v in pairs(opt) do opt[k] = tonumber(os.getenv(k)) or os.getenv(k) or opt[k] end
@@ -25,7 +25,7 @@ if opt.display == 0 then opt.display = false end
 
 assert(net ~= '', 'provide a generator model')
 noise = torch.Tensor(opt.batchSize, opt.nz, opt.imsize, opt.imsize)
-caption_path = "/home/vashishtm/ImageGen/caption_vecs/COCO_train2014_000000078827.csv" -- 
+caption_path = "/home/vashishtm/ImageGen/caption_vecs/COCO_train2014_000000581880.csv" -- 
 local temp_vec = vigo.load(caption_path)
 local caption_rep
 for k,v in pairs(temp_vec) do temp_key = k end

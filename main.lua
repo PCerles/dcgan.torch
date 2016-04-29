@@ -14,7 +14,7 @@ opt = {
    batchSize = 64,
    loadSize = 96,
    fineSize = 64,
-   nz = 1024,               -- #  of dim for Z
+   nz = 100,               -- #  of dim for Z
    ncond = 1024, 	         -- #  of dim for C
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
@@ -25,7 +25,7 @@ opt = {
    ntrain = math.huge,     -- #  of examples per epoch. math.huge for full dataset
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
-   gpu = 2,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
+   gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
    name = 'experiment1',
    noise = 'normal',       -- uniform / normal
    conditional = true,
@@ -77,45 +77,43 @@ local nets = {}
 
 function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
     if conditional then
-        -- local noise = nn.Identity()()
-        -- local cond = nn.Identity()()
+        local noise = nn.Identity()()
+        local cond = nn.Identity()()
         
         -- input is Z + C, going into a convolution
         -- concatenation table
-        -- local concat1 = JoinTable(2)({noise, cond})
-        
-        
+        local data = JoinTable(2)({noise, cond})
         --concatenate before calling net.forward
-        local data = nn.Identity()()
+        --local data = nn.Identity()()
 
         local conv1 = SpatialFullConvolution(nz+ncond, ngf * 8, 4, 4)(data)
         local bn1 = SpatialBatchNormalization(ngf * 8)(conv1)
         local relu1 = nn.ReLU(true)(bn1)
 
-        --concat2 = JoinTable(1)({relu1,condInput})
-        --conv2 = (SpatialFullConvolution(ngf * 8 + ncond, ngf * 4, 4, 4, 2, 2, 1, 1))(concat2)
-        local conv2 = (SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))(relu1)
+        local concat2 = JoinTable(2)({relu1,cond})
+        local conv2 = (SpatialFullConvolution(ngf * 8 + ncond, ngf * 4, 4, 4, 2, 2, 1, 1))(concat2)
+        --local conv2 = (SpatialFullConvolution(ngf * 8, ngf * 4, 4, 4, 2, 2, 1, 1))(relu1)
         local bn2 = (SpatialBatchNormalization(ngf * 4))(conv2)
         local relu2 = nn.ReLU(true)(bn2)
 
-        --concat3 = JoinTable(1)({relu2,condInput})
-        --conv3 = SpatialFullConvolution(ngf * 4 + ncond, ngf * 2, 4, 4, 2, 2, 1, 1)(concat3)
-        local conv3 = (SpatialFullConvolution(ngf * 4, ngf * 2, 4, 4, 2, 2, 1, 1))(relu2)
+        local concat3 = JoinTable(2)({relu2,cond})
+        local conv3 = SpatialFullConvolution(ngf * 4 + ncond, ngf * 2, 4, 4, 2, 2, 1, 1)(concat3)
+        --local conv3 = (SpatialFullConvolution(ngf * 4, ngf * 2, 4, 4, 2, 2, 1, 1))(relu2)
         local bn3 = SpatialBatchNormalization(ngf * 2)(conv3)
         local relu3 = nn.ReLU(true)(bn3)
 
-        --concat4 = JoinTable(1)({relu3,condInput})
-        --conv4 = SpatialFullConvolution(ngf * 2 + ncond, ngf, 4, 4, 2, 2, 1, 1)(concat4)
-        local conv4 = SpatialFullConvolution(ngf * 2, ngf, 4, 4, 2, 2, 1, 1)(relu3)
+        local concat4 = JoinTable(2)({relu3,cond})
+        local conv4 = SpatialFullConvolution(ngf * 2 + ncond, ngf, 4, 4, 2, 2, 1, 1)(concat4)
+        --local conv4 = SpatialFullConvolution(ngf * 2, ngf, 4, 4, 2, 2, 1, 1)(relu3)
         local bn4 = SpatialBatchNormalization(ngf)(conv4)
         local relu4 = nn.ReLU(true)(bn4)
 
-        --concat5 = JoinTable(1)({relu4,condInput})
-        --conv5 = SpatialFullConvolution(ngf + ncond, nc, 4, 4, 2, 2, 1, 1)(concat5)
-        local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
+        local concat5 = JoinTable(2)({relu4,cond})
+        local conv5 = SpatialFullConvolution(ngf + ncond, nc, 4, 4, 2, 2, 1, 1)(concat5)
+        --local conv5 = SpatialFullConvolution(ngf, nc, 4, 4, 2, 2, 1, 1)(relu4)
         local output = nn.Tanh()(conv5)
 
-        local netG = nn.gModule({data}, {output})
+        local netG = nn.gModule({noise,cond}, {output})
    	    return netG
     else
         local netG = nn.Sequential()
@@ -144,37 +142,48 @@ function nets.discriminativeNet(ndf, in_size, cond_size, conditional)
     if conditional then
        -- Discriminative Network
         -- input is (nc) x 64 x 64
-        local D_input = nn.Identity()()
-        local D_condInput = nn.Identity()()
-              --D_conv1 = SpatialConvolution(nc + ncond, ndf, 4, 4, 2, 2, 1, 1)(D_input)
-        local D_conv1 = SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1)(D_input)
-        local D_relu1 = nn.LeakyReLU(0.2, true)(D_conv1)
-              -- state size: (ndf) x 32 x 32
-              --D_conv2 = SpatialConvolution(ndf + cond, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
-        local D_conv2 = SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
-        local D_bn2 = SpatialBatchNormalization(ndf * 2)(D_conv2)
-        local D_relu2 = nn.LeakyReLU(0.2, true)(D_bn2)
-              -- state size: (ndf*2) x 16 x 16
-              --D_conv3 = SpatialConvolution(ndf * 2 + ncond, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
-        local D_conv3 = SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
-        local D_bn3 = SpatialBatchNormalization(ndf * 4)(D_conv3)
-        local D_relu3 = nn.LeakyReLU(0.2, true)(D_bn3)
-              -- state size: (ndf*4) x 8 x 8
-              --D_conv4 = SpatialConvolution(ndf * 4 + ncond, ndf * 8, 4, 4, 2, 2, 1, 1)(D_relu3)
-        local D_conv4 = SpatialConvolution(ndf * 4, ndf * 8, 4, 4, 2, 2, 1, 1)(D_relu3)
-        local D_bn4 = SpatialBatchNormalization(ndf * 8)(D_conv4)
-        local D_relu4 = nn.LeakyReLU(0.2, true)(D_bn4)
-              -- state size: (ndf*8) x 4 x 4
-        --local D_conv5 = SpatialConvolution(ndf * 8 , 1, 4, 4)(D_relu4)
-        local D_reshape5 = nn.Reshape(ndf*8*4*4,1)(D_relu4)
-	local D_concat5 = JoinTable(2)({D_reshape5,D_condInput})
-	local after_reshape = nn.Reshape(ndf*8*4*4 + cond_size)(D_concat5)
-	local D_linear5 = nn.Linear(ndf*8*4*4 + cond_size, 1)(after_reshape)
-        local D_sigmoid1 = nn.Sigmoid()(D_linear5)
+        local input = nn.Identity()()
+        local cond = nn.Identity()()
+	local cond2 = nn.Identity()()
+
+       	local concat1 = JoinTable(2)({input,cond}) 
+      	local conv1 = SpatialConvolution(nc + ncond, ndf, 4, 4, 2, 2, 1, 1)(concat1)
+        --local D_conv1 = SpatialConvolution(nc, ndf, 4, 4, 2, 2, 1, 1)(D_input)
+        local relu1 = nn.LeakyReLU(0.2, true)(conv1)
+
+        -- state size: (ndf) x 32 x 32
+       	local concat2 = JoinTable(2)({relu1,cond2})
+	local conv2 = SpatialConvolution(ndf + ncond, ndf * 2, 4, 4, 2, 2, 1, 1)(concat2)
+        --local D_conv2 = SpatialConvolution(ndf, ndf * 2, 4, 4, 2, 2, 1, 1)(D_relu1)
+        local bn2 = SpatialBatchNormalization(ndf * 2)(conv2)
+        local relu2 = nn.LeakyReLU(0.2, true)(bn2)
+
+        -- state size: (ndf*2) x 16 x 16
+	local concat3 = JoinTable(2)({relu2,cond})
+     	local conv3 = SpatialConvolution(ndf * 2 + ncond, ndf * 4, 4, 4, 2, 2, 1, 1)(concat3)
+        --local D_conv3 = SpatialConvolution(ndf * 2, ndf * 4, 4, 4, 2, 2, 1, 1)(D_relu2)
+        local bn3 = SpatialBatchNormalization(ndf * 4)(conv3)
+        local relu3 = nn.LeakyReLU(0.2, true)(bn3)
+
+       	-- state size: (ndf*4) x 8 x 8
+	local concat4 = JoinTable(2)({relu3,cond})
+        local conv4 = SpatialConvolution(ndf * 4 + ncond, ndf * 8, 4, 4, 2, 2, 1, 1)(concat4)
+        --local D_conv4 = SpatialConvolution(ndf * 4, ndf * 8, 4, 4, 2, 2, 1, 1)(D_relu3)
+        local bn4 = SpatialBatchNormalization(ndf * 8)(conv4)
+        local relu4 = nn.LeakyReLU(0.2, true)(bn4)
+
+        -- state size: (ndf*8) x 4 x 4
+        local concat5 = JoinTable(2)({relu4,condInput})
+	local conv5 = SpatialConvolution(ndf * 8 + ncond , 1, 4, 4)(concat5)
+        --local D_reshape5 = nn.Reshape(ndf*8*4*4,1)(D_relu4)
+	--local D_concat5 = JoinTable(2)({D_reshape5,D_condInput})
+	--local after_reshape = nn.Reshape(ndf*8*4*4 + cond_size)(D_concat5)
+	--local D_linear5 = nn.Linear(ndf*8*4*4 + cond_size, 1)(after_reshape)
+        local sigmoid1 = nn.Sigmoid()(conv5)
         -- state size: 1 x 1 x 1
-        --local D_view1 = nn.View(1):setNumInputDims(3)(D_sigmoid1)
+        local view1 = nn.View(1):setNumInputDims(3)(sigmoid1)
         -- state size: 1
-        local netD = nn.gModule({D_input,D_condInput},{D_sigmoid1})
+        local netD = nn.gModule({input,cond,cond2},{view1})
 	--print(D_sigmoid1:graph():reverse())
 	--graph.dot(netD.fg, 'Discrim', 'Discrim')
 	return netD
@@ -226,6 +235,9 @@ optimStateD = {
 local input = torch.Tensor(opt.batchSize, 3, opt.fineSize, opt.fineSize)
 local noise = torch.Tensor(opt.batchSize, nz, 1, 1)
 local cond = torch.Tensor(opt.batchSize, ncond, 1, 1)
+-- conditional info for G network at every layer
+local cond2 = torch.Tensor(opt.batchSize,ncond,64,64) -- hard coded for current image size
+local cond3 = torch.Tensor(opt.batchSize,ncond,32,32)
 local label = torch.Tensor(opt.batchSize)
 local errD, errG
 local epoch_tm = torch.Timer()
@@ -278,12 +290,18 @@ local fDxCond = function(x)
   
    input:copy(real)
    cond:copy(caption_vecs)
+   print(cond:size())
+   local temp = torch.expand(cond,opt.batchSize,ncond,64,64)
+   local temp2 = torch.expand(cond,opt.batchSize,ncond,32,32)
+   print(temp:size())
+   cond2:copy(temp)
+   cond3:copy(temp2)
    label:fill(real_label)
 
-   local output = netD:forward({input, cond}) -- run with image + conditional info
+   local output = netD:forward({input, cond2,cond3}) -- run with image + conditional info
    local errD_real = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
-   netD:backward({input,cond}, df_do)
+   netD:backward({input,cond2,cond3}, df_do)
 
    -- train with fake
    if opt.noise == 'uniform' then -- regenerate random noise
@@ -293,16 +311,15 @@ local fDxCond = function(x)
    end
    -- sample a potential caption
    local joinData = torch.cat(noise, cond, 2)
-   local fake = netG:forward(joinData)
+   local fake = netG:forward({noise,cond})
 
    input:copy(fake)
-   cond:copy(cond)
    label:fill(fake_label)
 
-   local output = netD:forward({input, cond})
+   local output = netD:forward({input, cond2,cond3})
    local errD_fake = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
-   netD:backward({input,cond}, df_do)
+   netD:backward({input,cond2,cond3}, df_do)
 
    errD = errD_real + errD_fake
 
@@ -382,10 +399,10 @@ local fGxCond = function(x)
    local output = netD.output -- netD:forward(input) was already executed in fDx, so save computation
    errG = criterion:forward(output, label)
    local df_do = criterion:backward(output, label)
-   local df_dg = netD:updateGradInput({input,cond}, df_do)
+   local df_dg = netD:updateGradInput({input,cond2,cond3}, df_do)
    local df_di = df_dg[1]
    local joinData = torch.cat(noise, cond, 2)
-   netG:backward(joinData, df_di)
+   netG:backward({noise,cond}, df_di)
    return errG, gradParametersG
 end
 -- train
@@ -428,14 +445,14 @@ for epoch = 1, opt.niter do
                  errG and errG or -1, errD and errD or -1))
       end
    end
-   paths.mkdir('checkpoints')
+   paths.mkdir('checkpoints-layer')
    parametersD, gradParametersD = nil, nil -- nil them to avoid spiking memory
    parametersG, gradParametersG = nil, nil
    print(netG)
    if epoch % 25 == 0 then
 	real_epoch = opt.checkpoint + epoch
-   	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_G.t7', netG, opt.gpu)
-   	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_D.t7', netD, opt.gpu)
+   	util.save('checkpoints-layer/' .. opt.name .. '_' .. real_epoch .. '_net_G.t7', netG, opt.gpu)
+   	util.save('checkpoints-layer/' .. opt.name .. '_' .. real_epoch .. '_net_D.t7', netD, opt.gpu)
    end
    parametersD, gradParametersD = netD:getParameters() -- reflatten the params and get them
    parametersG, gradParametersG = netG:getParameters()

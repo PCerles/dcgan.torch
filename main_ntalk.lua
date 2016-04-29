@@ -3,18 +3,18 @@ require 'nn'
 require 'nngraph'
 require 'optim'
 require 'cunn'
+require 'image'
 package.path = package.path .. ";/home/vashishtm/ImageGen/neuraltalk2/?.lua;/home/vashishtm/ImageGen/neuraltalk2/model/?.t7"
 util = paths.dofile('util.lua')
---ntalk_util = require('external')
---local ntalk_model =  '../neuraltalk2/model/karpathymodel.t7_cpu.t7'
---local ntalk_protos = ntalk_util.getProtos(ntalk_model, -1)
+ntalk_util = require('external')
+local ntalk_model =  '../neuraltalk2/model/karpathymodel.t7_cpu.t7'
 nngraph.setDebug(true)
 opt = {
    dataset = 'lsun',       -- imagenet / lsun / folder
-   batchSize = 64,
+   batchSize = 32,
    loadSize = 96,
    fineSize = 64,
-   nz = 1024,               -- #  of dim for Z
+   nz = 200,               -- #  of dim for Z
    ncond = 1024, 	         -- #  of dim for C
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
@@ -115,10 +115,10 @@ function nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
     local output = nn.Tanh()(conv5)
 
     local netG = nn.gModule({data}, {output})
-	  return netG
+    return netG
 end
 
-function nets.discriminativeNet(ndf, in_size, conditional)tD
+function nets.discriminativeNet(ndf)
     local netD = nn.Sequential()
     -- Discriminative Network
     -- input is (nc) x 64 x 64
@@ -142,9 +142,10 @@ function nets.discriminativeNet(ndf, in_size, conditional)tD
     return netD
 end
 
+
 if opt.checkpoint == 0 then
 	netG = nets.generativeNet(ngf, noise_size, cond_size, conditional, out_size)
-	netD = nets.discriminativeNet(ndf, in_size, ncond, conditional)
+	netD = nets.discriminativeNet(ndf)
 	netG:apply(weights_init)
 	netD:apply(weights_init)
 else
@@ -191,6 +192,7 @@ elseif opt.noise == 'normal' then
     noise_vis:normal(0, 1)
 end
 
+local ntalk_protos = ntalk_util.getProtos(ntalk_model, 1)
 local fDxCond = function(x)
    netD:apply(function(m) if torch.type(m):find('Convolution') then m.bias:zero() end end)
    netG:apply(function(m) if torch.type(m):find('Convolution') then m.bias:zero() end end)
@@ -231,10 +233,20 @@ local fDxCond = function(x)
    local df_do = criterion:backward(output, label)
    netD:backward(input, df_do)
 
-   local ntalk_loss = ntalk_util.getLoss(ntalk_protos, fake, captions)
-   print(ntalk_loss)
 
    errD = errD_real + errD_fake
+	
+   cutorch.setDevice(1)
+
+   local fake_gpu1 = fake:clone()
+
+   ntalk_protos.cnn = ntalk_protos.cnn:clone()
+   ntalk_protos.lm = ntalk_protos.lm:clone()
+   ntalk_protos.crit = ntalk_protos.crit:clone()
+   local ntalk_loss = ntalk_util.getLoss(ntalk_protos, fake_gpu1, captions)
+   print(ntalk_loss)
+
+   cutorch.setDevice(2)
 
    return errD, gradParametersD
 end
@@ -292,14 +304,14 @@ for epoch = 1, opt.niter do
                  errG and errG or -1, errD and errD or -1))
       end
    end
-   paths.mkdir('checkpoints')
+   paths.mkdir('checkpoints_ntalk')
    parametersD, gradParametersD = nil, nil -- nil them to avoid spiking memory
    parametersG, gradParametersG = nil, nil
    print(netG)
    if epoch % 25 == 0 then
 	real_epoch = opt.checkpoint + epoch
-   	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_G.t7', netG, opt.gpu)
-   	util.save('checkpoints/' .. opt.name .. '_' .. real_epoch .. '_net_D.t7', netD, opt.gpu)
+   	util.save('checkpoints_ntalk/' .. opt.name .. '_' .. real_epoch .. '_net_G.t7', netG, opt.gpu)
+   	util.save('checkpoints_ntalk/' .. opt.name .. '_' .. real_epoch .. '_net_D.t7', netD, opt.gpu)
    end
    parametersD, gradParametersD = netD:getParameters() -- reflatten the params and get them
    parametersG, gradParametersG = netG:getParameters()
