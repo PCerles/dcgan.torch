@@ -70,28 +70,46 @@ local trainHook = function(self, path)
    if torch.uniform() > 0.5 then out = image.hflip(out); end
    out:mul(2):add(-1) -- make it [0, 1] -> [-1, 1]
 
-   --load caption
-   local caption_path = path:gsub('data/images', 'captions')
-   caption_path = caption_path:gsub('jpg','txt')
+   --load captionI
+   local caption_path = path:gsub('dataSmall2/images', 'captionsSmallVec2')
+   caption_path = caption_path:gsub('jpg','csv')
    local caption = 'NONE'
-   -- load caption_rep
-   local caption_rep_path = path:gsub('data/images', 'caption_vecs')
-   caption_rep_path = caption_rep_path:gsub('jpg','csv')
-   local caption_rep = 'NONE'
    if paths.filep(caption_path) then
-     local caption_file = io.open(caption_path)
-     caption = caption_file:read('*a')
-     caption_file:close()
-   end 
-   if paths.filep(caption_rep_path) then
-     local temp_vec = vigo.load(caption_rep_path)
+	caption = torch.load(caption_path)
+   end
+   -- load caption_rep
+   --local caption_rep_path = path:gsub('data/images', 'caption_vecs')
+   --caption_rep_path = caption_rep_path:gsub('jpg','csv')
+   --local caption_rep = 'NONE'
+
+  -- if paths.filep(caption_path) then
+    -- local caption_file = io.open(caption_path)
+     --caption = caption_file:read('*a')
+     --caption_file:close()
+  -- end 
+
+   --if paths.filep(caption_rep_path) then
+   --  local temp_vec = vigo.load(caption_rep_path)
+   --  for k,v in pairs(temp_vec) do temp_key = k end
+   --  local temp_table = {}
+   --  table.insert(temp_table,temp_key)
+   --  for k,v in pairs(temp_vec[temp_key]) do table.insert(temp_table,v) end
+   --  caption_rep = torch.Tensor(temp_table) 
+   -- end
+
+   -- load caption vocab rep
+   local vocab_rep_path = path:gsub('dataSmall2/images', 'vocab_vecs2')
+   vocab_rep_path = vocab_rep_path:gsub('jpg','csv')
+   local vocab_rep = 'NONE'
+   if paths.filep(vocab_rep_path) then
+     local temp_vec = vigo.load(vocab_rep_path)
      for k,v in pairs(temp_vec) do temp_key = k end
      local temp_table = {}
      table.insert(temp_table,temp_key)
      for k,v in pairs(temp_vec[temp_key]) do table.insert(temp_table,v) end
-     caption_rep = torch.Tensor(temp_table) 
+     vocab_rep = torch.Tensor(temp_table) 
    end
-   return out, caption,caption_rep
+   return out, caption, vocab_rep
 end
 
 --------------------------------------

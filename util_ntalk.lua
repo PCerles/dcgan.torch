@@ -83,7 +83,7 @@ end
 function util.cudnn(net)
     for k, l in ipairs(net.modules) do
         -- convert to cudnn
-        if false and torch.type(l) == 'nn.SpatialConvolution' and pcall(require, 'cudnn') then
+        if torch.type(l) == 'nn.SpatialConvolution' and pcall(require, 'cudnn') then
             local new = cudnn.SpatialConvolution(l.nInputPlane, l.nOutputPlane,
 						 l.kW, l.kH, l.dW, l.dH,
 						 l.padW, l.padH)

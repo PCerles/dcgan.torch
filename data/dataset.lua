@@ -136,11 +136,11 @@ function dataset:__init(...)
    local wc = 'wc'
    local cut = 'cut'
    local find = 'find'
-   if jit.os == 'OSX' then
-      wc = 'gwc'
-      cut = 'gcut'
-      find = 'gfind'
-   end
+   --if jit.os == 'OSX' then
+   --   wc = 'gwc'
+   --   cut = 'gcut'
+   --   find = 'gfind'
+   --end
    ----------------------------------------------------------------------
    -- Options for the GNU find command
    local extensionList = {'jpg', 'png','JPG','PNG','JPEG', 'ppm', 'PPM', 'bmp', 'BMP'}
@@ -317,19 +317,21 @@ function dataset:getByClass(class)
 end
 
 -- converts a table of samples (and corresponding labels) to a clean tensor
-local function tableToOutput(self, dataTable, scalarTable, captionTable, captionRepTable)
-   local data, scalarLabels, labels,captionRepMat
+local function tableToOutput(self, dataTable, scalarTable, captionTable, vocabRepTable)
+   local data, scalarLabels, labels,  vocabRepMat,captioRepMat
    local quantity = #scalarTable
    assert(dataTable[1]:dim() == 3)
    data = torch.Tensor(quantity,
 		       self.sampleSize[1], self.sampleSize[2], self.sampleSize[3])
    scalarLabels = torch.LongTensor(quantity):fill(-1111)
-   captionRepMat = torch.cat(captionRepTable, 2)
+   --captionRepMat = torch.cat(captionRepTable, 2)
+   vocabRepMat = torch.cat(vocabRepTable, 2)
+   captionRepMat = torch.cat(captionTable,2)
    for i=1,#dataTable do
       data[i]:copy(dataTable[i])
       scalarLabels[i] = scalarTable[i]
    end
-   return data, scalarLabels, captionTable, captionRepMat:transpose(1,2)
+   return data, scalarLabels, captionRepMat:transpose(1,2), vocabRepMat:transpose(1, 2)
 end
 
 -- sampler, samples from the training set.
@@ -338,17 +340,19 @@ function dataset:sample(quantity)
    local dataTable = {}
    local scalarTable = {}
    local captionTable = {}
-   local captionRepTable = {}
+--   local captionRepTable = {}
+   local vocabRepTable = {}
    for i=1,quantity do
       local class = torch.random(1, #self.classes)
-      local out, caption,caption_rep = self:getByClass(class)
+      local out, caption, vocab_rep = self:getByClass(class)
       table.insert(dataTable, out)
       table.insert(scalarTable, class)
       table.insert(captionTable, caption)
-      table.insert(captionRepTable,caption_rep)
+--      table.insert(captionRepTable, caption_rep)
+      table.insert(vocabRepTable, vocab_rep)
    end
-   local data, scalarLabels, captions,capRepMat = tableToOutput(self, dataTable, scalarTable, captionTable,captionRepTable)
-   return data, captions,capRepMat, scalarLabels
+   local data, scalarLabels, captions, vocabRep = tableToOutput(self, dataTable, scalarTable, captionTable, vocabRepTable)
+   return data, captions, scalarLabels, vocabRep
 end
 
 function dataset:get(i1, i2)
